@@ -10,6 +10,14 @@ class VirtualDisplayManager {
     private var displaySettings: CGVirtualDisplaySettings?
     private var screenParamsObserver: NSObjectProtocol?
 
+    private var userDefaultsKeyPrefix: String {
+        if let instance = ProcessInfo.processInfo.environment["SIDESCREEN_INSTANCE"],
+           !instance.isEmpty {
+            return "SideScreen_\(instance)_"
+        }
+        return "SideScreen_"
+    }
+
     var displayID: CGDirectDisplayID? {
         return virtualDisplay?.displayID
     }
@@ -57,7 +65,12 @@ class VirtualDisplayManager {
         // Use width * 10000 + height so (3840,2400) ≠ (2400,3840) — avoids portrait/landscape collision
         descriptor.productID = UInt32((physW * 10000 + physH) & 0xFFFFFFFF)
         descriptor.vendorID = 0xEEEE
-        descriptor.serialNum = 0x0001
+        if let serialEnv = ProcessInfo.processInfo.environment["SIDESCREEN_SERIAL"],
+           let serialVal = UInt32(serialEnv) {
+            descriptor.serialNum = serialVal
+        } else {
+            descriptor.serialNum = 0x0001
+        }
 
         self.displayDescriptor = descriptor
 
@@ -264,9 +277,9 @@ class VirtualDisplayManager {
     func saveDisplayPosition() {
         guard let position = getDisplayPosition() else { return }
         let defaults = UserDefaults.standard
-        defaults.set(Int(position.x), forKey: "SideScreen_positionX")
-        defaults.set(Int(position.y), forKey: "SideScreen_positionY")
-        defaults.set(true, forKey: "SideScreen_hasPosition")
+        defaults.set(Int(position.x), forKey: userDefaultsKeyPrefix + "positionX")
+        defaults.set(Int(position.y), forKey: userDefaultsKeyPrefix + "positionY")
+        defaults.set(true, forKey: userDefaultsKeyPrefix + "hasPosition")
         print("💾 Saved display position: (\(Int(position.x)), \(Int(position.y)))")
     }
 
@@ -278,13 +291,13 @@ class VirtualDisplayManager {
         defer { ensurePhysicalDisplayStaysMain() }
 
         let defaults = UserDefaults.standard
-        guard defaults.bool(forKey: "SideScreen_hasPosition") else {
+        guard defaults.bool(forKey: userDefaultsKeyPrefix + "hasPosition") else {
             print("📍 No saved display position found")
             return
         }
 
-        let x = defaults.integer(forKey: "SideScreen_positionX")
-        let y = defaults.integer(forKey: "SideScreen_positionY")
+        let x = defaults.integer(forKey: userDefaultsKeyPrefix + "positionX")
+        let y = defaults.integer(forKey: userDefaultsKeyPrefix + "positionY")
 
         // A position saved while the tablet was the Mac's only screen is the
         // main slot (0,0). Re-applying it with a physical display attached

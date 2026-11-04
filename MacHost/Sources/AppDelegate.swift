@@ -167,9 +167,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let port = Int(settings.port)
+        let sourcePort = Int(settings.adbReverseSourcePort)
         Task.detached { [weak self] in
             let devices = StatusDetector.usbDevices()
-            let reverseOK = StatusDetector.adbReverseConfigured(port: port)
+            let reverseOK = StatusDetector.adbReverseConfigured(sourcePort: sourcePort, destinationPort: port)
             await MainActor.run { [weak self] in
                 guard let self = self else { return }
                 
@@ -455,8 +456,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     /// Setup ADB reverse port forwarding for USB connection
     func setupADBReverse() async {
         let port = settings.port
-        print("🔌 Setting up ADB reverse for port \(port)...")
-        debugLog("🔌 setupADBReverse() invoked for port \(port)...")
+        let sourcePort = settings.adbReverseSourcePort
+        let androidSerial = ProcessInfo.processInfo.environment["ANDROID_SERIAL"]
+        print("🔌 Setting up ADB reverse tcp:\(sourcePort) -> tcp:\(port)...")
+        debugLog("🔌 setupADBReverse() invoked for tcp:\(sourcePort) -> tcp:\(port)...")
 
         await Task.detached(priority: .utility) {
             // Try common adb paths
@@ -500,7 +503,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
             guard let finalAdbPath = adbPath else {
                 print("⚠️  ADB not found - USB connection may not work")
-                print("💡 Install Android SDK or run manually: adb reverse tcp:\(port) tcp:\(port)")
+                print("💡 Install Android SDK or run manually: adb reverse tcp:\(sourcePort) tcp:\(port)")
                 return
             }
 
@@ -510,7 +513,12 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             for attempt in 1...3 {
                 let process = Process()
                 process.executableURL = URL(fileURLWithPath: finalAdbPath)
-                process.arguments = ["reverse", "tcp:\(port)", "tcp:\(port)"]
+                var arguments: [String] = []
+                if let androidSerial, !androidSerial.isEmpty {
+                    arguments += ["-s", androidSerial]
+                }
+                arguments += ["reverse", "tcp:\(sourcePort)", "tcp:\(port)"]
+                process.arguments = arguments
 
                 let pipe = Pipe()
                 process.standardOutput = pipe
@@ -524,7 +532,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                     let output = String(data: data, encoding: .utf8) ?? ""
 
                     if process.terminationStatus == 0 {
-                        print("✅ ADB reverse setup successful: tcp:\(port) -> tcp:\(port)")
+                        print("✅ ADB reverse setup successful: tcp:\(sourcePort) -> tcp:\(port)")
                         return
                     } else {
                         print("⚠️  ADB reverse attempt \(attempt)/3 failed: \(output.trimmingCharacters(in: .whitespacesAndNewlines))")

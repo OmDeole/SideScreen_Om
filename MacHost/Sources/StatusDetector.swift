@@ -37,12 +37,17 @@ enum StatusDetector {
         }
     }
 
-    /// Heuristic: parse `adb reverse --list` for `tcp:<port> tcp:<port>`.
-    static func adbReverseConfigured(port: Int) -> Bool {
+    /// Heuristic: parse `adb reverse --list` for `tcp:<sourcePort> tcp:<destinationPort>`.
+    static func adbReverseConfigured(sourcePort: Int, destinationPort: Int) -> Bool {
         guard let adbPath = adbExecutablePath() else { return false }
         let task = Process()
         task.executableURL = URL(fileURLWithPath: adbPath)
-        task.arguments = ["reverse", "--list"]
+        var arguments: [String] = []
+        if let serial = ProcessInfo.processInfo.environment["ANDROID_SERIAL"], !serial.isEmpty {
+            arguments += ["-s", serial]
+        }
+        arguments += ["reverse", "--list"]
+        task.arguments = arguments
         let pipe = Pipe()
         task.standardOutput = pipe
         task.standardError = Pipe()
@@ -54,7 +59,7 @@ enum StatusDetector {
         }
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         let output = String(data: data, encoding: .utf8) ?? ""
-        return output.contains("tcp:\(port) tcp:\(port)")
+        return output.contains("tcp:\(sourcePort) tcp:\(destinationPort)")
     }
 
     private static var cachedAdbPath: String?

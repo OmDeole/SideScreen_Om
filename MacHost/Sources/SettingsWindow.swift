@@ -787,7 +787,7 @@ struct SettingsView: View {
                                     StatusRow(title: "ADB reverse",
                                               status: settings.adbReverseConfigured ? "OK" : "Pending",
                                               color: settings.adbReverseConfigured ? .green : .orange,
-                                              hint: "Whether `adb reverse tcp:\(settings.port) tcp:\(settings.port)` is currently configured. The Mac app sets this up automatically when you click Start. Goes green within ~2 seconds after the tablet is plugged in and authorized.")
+                                              hint: "Whether `adb reverse tcp:\(settings.adbReverseSourcePort) tcp:\(settings.port)` is currently configured. The Mac app sets this up automatically when you click Start. Goes green within ~2 seconds after the tablet is plugged in and authorized.")
                                     StatusRow(title: "USB device",
                                               status: settings.usbDeviceConnected ? "Detected" : "Not detected",
                                               color: settings.usbDeviceConnected ? .green : .red,
@@ -1196,7 +1196,29 @@ struct RotationButton: View {
 
 class DisplaySettings: ObservableObject {
     private let defaults = UserDefaults.standard
-    private let keyPrefix = "SideScreen_"
+    private let keyPrefix: String = {
+        if let instance = ProcessInfo.processInfo.environment["SIDESCREEN_INSTANCE"],
+           !instance.isEmpty {
+            return "SideScreen_\(instance)_"
+        }
+        return "SideScreen_"
+    }()
+    /// When SIDESCREEN_PORT is set, the port it carries overrides the persisted
+    /// default but is never saved back — the user's stored value stays intact.
+    private let portEnvOverride: UInt16? = {
+        if let raw = ProcessInfo.processInfo.environment["SIDESCREEN_PORT"],
+           let val = UInt16(raw) {
+            return val
+        }
+        return nil
+    }()
+
+    /// The Android app always connects to 54321 when an instance port
+    /// override is active. Without an override, preserve the existing
+    /// persisted-port reverse mapping.
+    var adbReverseSourcePort: UInt16 {
+        portEnvOverride == nil ? port : 54321
+    }
 
     @Published var resolution: String {
         didSet { save("resolution", resolution) }
@@ -1217,7 +1239,7 @@ class DisplaySettings: ObservableObject {
         didSet { save("gamingBoost", gamingBoost) }
     }
     @Published var port: UInt16 {
-        didSet { save("port", Int(port)) }
+        didSet { if portEnvOverride == nil { save("port", Int(port)) } }
     }
     @Published var rotation: Int {
         didSet { save("rotation", rotation) }
@@ -1288,7 +1310,8 @@ class DisplaySettings: ObservableObject {
         self.gamingBoost = defaults.bool(forKey: keyPrefix + "gamingBoost")
         // Default port 54321 (was 8888 in <=0.7.1; 8888 collides with jupyter/splunk/HP printers).
         // Existing users keep their saved value.
-        self.port = UInt16(defaults.object(forKey: keyPrefix + "port") as? Int ?? 54321)
+        // SIDESCREEN_PORT env var overrides the persisted value without saving.
+        self.port = portEnvOverride ?? UInt16(defaults.object(forKey: keyPrefix + "port") as? Int ?? 54321)
         self.rotation = defaults.object(forKey: keyPrefix + "rotation") as? Int ?? 0
         self.flipHorizontal = defaults.bool(forKey: keyPrefix + "flipHorizontal")
         self.flipVertical = defaults.bool(forKey: keyPrefix + "flipVertical")
